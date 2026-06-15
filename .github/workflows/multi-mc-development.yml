@@ -1,0 +1,94 @@
+# Multi-MC development check.
+#
+# Runs alongside the standard simatic-ax `package-development-workflow.yml`.
+# That workflow only proves the local MC variant builds (apax.yml on main
+# pins to one MC version). This one fans the build + test across every MC
+# version listed in mc-versions.yml — preventing PRs that accidentally rely
+# on MC-version-specific APIs from being merged.
+#
+# Strategy is `fail-fast: true`: as soon as one MC variant breaks, the
+# remaining matrix jobs are cancelled. Author re-runs after fixing.
+name: Multi-MC development check
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+      - 'release/*'
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  plan:
+    name: Read mc-versions.yml and build matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify mc-versions.yml exists
+        run: |
+          if [[ ! -f mc-versions.yml ]]; then
+            echo "::error::Multi-MC workflow requires mc-versions.yml at repo root."
+            echo "::error::Either add the manifest, or remove this workflow file."
+            exit 1
+          fi
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - id: read
+        name: Read mc-versions.yml
+        run: |
+          set -euo pipefail
+          MATRIX=$(yq -o=json -I=0 '{"include": .versions}' mc-versions.yml)
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  build-and-test:
+    name: Build & test MC v${{ matrix.mc }}
+    needs: plan
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/simatic-ax/ci-images/apax-ci-image:4.2.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
+
+      - name: Rewrite apax.yml for MC v${{ matrix.mc }}
+        run: bash .github/scripts/rewrite-apax.sh --mc '${{ matrix.mc }}'
+
+      - name: Login to required registries
+        uses: simatic-ax/actions/apax-login@v4
+        with:
+          apax-token: ${{ secrets.APAX_TOKEN }}
+          registries: |
+            https://npm.pkg.github.com/,${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        uses: simatic-ax/actions/apax-install@v4
+        # Note: NOT `immutable: true` here — the rewrite step intentionally
+        # changed apax.yml so the lockfile must be regenerated.
+
+      - name: Build source code
+        uses: simatic-ax/actions/apax-build@v4
+
+      - name: Test source code
+        uses: simatic-ax/actions/apax-test@v4

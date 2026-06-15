@@ -1,0 +1,11 @@
+{
+    "USINGAxUnit": {
+    "scope": "javascript,typescript,st",
+    "prefix": ["USING LAxisCtrl"],
+    "body": [
+        "USING Simatic.Ax.LAxisCtrl;",
+        "$0"
+    ],
+    "description": "Create USING for LAxisCtrl;"
+    }
+}

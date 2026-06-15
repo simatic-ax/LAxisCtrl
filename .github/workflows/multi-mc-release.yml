@@ -1,0 +1,180 @@
+# Multi-MC release workflow.
+#
+# Replaces the standard simatic-ax single-package release flow for libraries
+# that need to ship one apax package per Motion Control version (see
+# mc-versions.yml at repo root).
+#
+# Triggered when a GitHub Release is published via the UI. For each MC version
+# listed in mc-versions.yml, builds and publishes a suffixed package
+# `<name>-v<mc>`.
+#
+# The workflow is split into two phases to prevent partial releases:
+#   1. Build phase (fail-fast: true) — all MC variants must build successfully
+#      and upload their bin/ artifacts before any publishing starts.
+#   2. Publish phase (fail-fast: false) — downloads pre-built artifacts and
+#      publishes each variant. Only runs after ALL builds pass.
+name: Multi-MC release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+  actions: write
+
+jobs:
+  plan:
+    name: Read mc-versions.yml and build matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Validate release tag is SemVer
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          # Accept optional leading v/V, then strict SemVer (major.minor.patch
+          # with optional pre-release and build metadata).
+          SEMVER_RE='^[vV]?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if [[ ! "$TAG" =~ $SEMVER_RE ]]; then
+            echo "::error::Release tag '$TAG' is not valid SemVer (expected [v]MAJOR.MINOR.PATCH[-prerelease][+build])."
+            exit 1
+          fi
+
+      - name: Verify mc-versions.yml exists
+        run: |
+          if [[ ! -f mc-versions.yml ]]; then
+            echo "::error::Multi-MC workflow requires mc-versions.yml at repo root."
+            echo "::error::Either add the manifest, or remove this workflow file."
+            exit 1
+          fi
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - id: read
+        name: Read mc-versions.yml
+        run: |
+          set -euo pipefail
+          MATRIX=$(yq -o=json -I=0 '{"include": .versions}' mc-versions.yml)
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  # --- Phase 1: Build all MC variants ----------------------------------
+  # All variants must build successfully before any publishing starts.
+  # fail-fast: true — stop early if any variant fails.
+  build:
+    name: Build MC v${{ matrix.mc }}
+    needs: plan
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/simatic-ax/ci-images/apax-ci-image:4.2.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Install yq
+        run: |
+          wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
+
+      - name: Rewrite apax.yml for MC v${{ matrix.mc }}
+        run: bash .github/scripts/rewrite-apax.sh --mc '${{ matrix.mc }}'
+
+      - name: Login to required registries
+        uses: simatic-ax/actions/apax-login@v4
+        with:
+          apax-token: ${{ secrets.APAX_TOKEN }}
+          registries: |
+            https://npm.pkg.github.com/,${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        uses: simatic-ax/actions/apax-install@v4
+
+      - name: Build source code
+        uses: simatic-ax/actions/apax-build@v4
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-mc-v${{ matrix.mc }}
+          path: |
+            bin/1500
+            bin/llvm
+          retention-days: 1
+          if-no-files-found: error
+
+  # --- Phase 2: Publish all MC variants ---------------------------------
+  # Only runs after every build job has succeeded, preventing partial releases.
+  # fail-fast: false — attempt all publishes (build failures already caught).
+  publish:
+    name: Publish MC v${{ matrix.mc }}
+    needs: [plan, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/simatic-ax/ci-images/apax-ci-image:4.2.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Install yq
+        run: |
+          wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          chmod +x /usr/local/bin/yq
+
+      - name: Rewrite apax.yml for MC v${{ matrix.mc }}
+        run: bash .github/scripts/rewrite-apax.sh --mc '${{ matrix.mc }}'
+
+      - name: Create bin folder
+        run: mkdir -p bin
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-mc-v${{ matrix.mc }}
+          path: bin
+
+      - name: Version package
+        uses: simatic-ax/actions/apax-version@v4
+        with:
+          version: ${{ github.event.release.tag_name }}
+
+      - name: Package source code
+        uses: simatic-ax/actions/apax-pack@v4
+        with:
+          key: ${{ secrets.APAX_SIGNKEY }}
+
+      - name: Login to required registries
+        uses: simatic-ax/actions/apax-login@v4
+        with:
+          apax-token: ${{ secrets.APAX_TOKEN }}
+          registries: |
+            https://npm.pkg.github.com/,${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish apax package
+        uses: simatic-ax/actions/apax-publish@v4
+        with:
+          registries: |
+            https://npm.pkg.github.com

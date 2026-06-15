@@ -1,0 +1,12 @@
+{
+    "NamespaceSupport": {
+    "scope": "javascript,typescript,st",
+    "prefix": ["CreateNamespace for LAxisCtrl"],
+    "body": [
+        "NAMESPACE Simatic.Ax.LAxisCtrl",
+        "\t$0",
+        "END_NAMESPACE"
+    ],
+    "description": "Creates an namespace template"
+    }
+}
