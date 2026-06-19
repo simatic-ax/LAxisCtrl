@@ -113,7 +113,7 @@ jobs:
         with:
           name: build-mc-v${{ matrix.mc }}
           path: |
-            bin/1500
+            bin/s7
             bin/llvm
           retention-days: 1
           if-no-files-found: error
