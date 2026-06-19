@@ -21,8 +21,15 @@ Install with Apax:
 > If not yet done login to the GitHub registry first.
 > More information you'll find [here](https://github.com/simatic-ax/.github/blob/main/docs/personalaccesstoken.md)
 
+Pick the package matching your Motion Control version:
+
+| Package                     | Motion Control version      |
+| --------------------------- | --------------------------- |
+| `@simatic-ax/laxisctrl-v9`  | MC v9                       |
+| `@simatic-ax/laxisctrl-v10` | MC v10                      |
+
 ```cli
-apax add @simatic-ax/laxisctrl
+apax add @simatic-ax/laxisctrl-v10
 ```
 
 Add the namespace in your ST code:
