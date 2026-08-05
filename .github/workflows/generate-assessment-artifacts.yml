@@ -39,7 +39,7 @@ jobs:
     steps:
       # Checkout the repository to access project files
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Set up Python environment for the collection script
       - name: Set up Python
@@ -78,7 +78,7 @@ jobs:
     steps:
       # Checkout repository for Excel generation scripts
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       
       # Set up Python environment for Excel generation
       - name: Set up Python
