@@ -93,7 +93,7 @@ jobs:
             
       # Download the info.yml artifact created in the previous job
       - name: Download info.yml
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v8
         with:
           name: info-yml
       
@@ -125,7 +125,7 @@ jobs:
     steps:
       # Download info.yml to extract ticket information for notification
       - name: Download info.yml
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v8
         with:
           name: info-yml
 
