@@ -1,0 +1,103 @@
+# Builds every package in packages/ and tests the root apax.yml.
+name: Multi-package development check
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+      - 'release/*'
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  plan:
+    name: Check packages and build matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.read.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check packages
+        run: bash .github/scripts/check-packages.sh
+
+      - id: read
+        name: List packages
+        run: |
+          set -euo pipefail
+          MATRIX=$(for f in packages/*/apax.yml; do basename "$(dirname "$f")"; done | jq -R . | jq -sc '{package: .}')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.package }}
+    needs: plan
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/simatic-ax/ci-images/apax-ci-image:4.4.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use packages/${{ matrix.package }}
+        env:
+          PACKAGE: ${{ matrix.package }}
+        # The root lockfile belongs to the root apax.yml; a package folder may bring its own.
+        run: |
+          rm -f apax-lock.json
+          cp -r "packages/$PACKAGE/." .
+
+      - name: Login to required registries
+        uses: simatic-ax/actions/apax-login@v4
+        with:
+          apax-token: ${{ secrets.APAX_TOKEN }}
+          registries: |
+            https://npm.pkg.github.com/,${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        uses: simatic-ax/actions/apax-install@v4
+
+      - name: Build source code
+        uses: simatic-ax/actions/apax-make@v4
+        with:
+          property: |
+            MakeConfigName:release
+
+  test:
+    name: Build & test root apax.yml
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/simatic-ax/ci-images/apax-ci-image:4.4.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to required registries
+        uses: simatic-ax/actions/apax-login@v4
+        with:
+          apax-token: ${{ secrets.APAX_TOKEN }}
+          registries: |
+            https://npm.pkg.github.com/,${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        uses: simatic-ax/actions/apax-install@v4
+
+      - name: Build source code
+        uses: simatic-ax/actions/apax-make@v4
+        with:
+          property: |
+            MakeConfigName:release
+
+      - name: Test source code
+        uses: simatic-ax/actions/apax-test@v4

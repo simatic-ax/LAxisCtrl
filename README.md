@@ -21,12 +21,7 @@ Install with Apax:
 > If not yet done login to the GitHub registry first.
 > More information you'll find [here](https://github.com/simatic-ax/.github/blob/main/docs/personalaccesstoken.md)
 
-Pick the package matching your Motion Control version:
-
-| Package                     | Motion Control version      |
-| --------------------------- | --------------------------- |
-| `@simatic-ax/laxisctrl-v9`  | MC v9                       |
-| `@simatic-ax/laxisctrl-v10` | MC v10                      |
+Pick the package matching your Motion Control version and CPU (see [Package variants](#package-variants)):
 
 ```cli
 apax add @simatic-ax/laxisctrl-v10
@@ -38,31 +33,49 @@ Add the namespace in your ST code:
 USING Simatic.Ax.LAxisCtrl;
 ```
 
+## Package variants
+
+The library is published as one package per Motion Control version and CPU feature set. All packages are built from the same source code and provide the same API.
+
+| Package                         | Motion Control version | Feature set | CPU      |
+| ------------------------------- | ---------------------- | ----------- | -------- |
+| `@simatic-ax/laxisctrl-v10`     | MC v10                 | Technology  | S7-1500T |
+| `@simatic-ax/laxisctrl-std-v10` | MC v10                 | Standard    | S7-1500  |
+| `@simatic-ax/laxisctrl-v9`      | MC v9                  | Technology  | S7-1500T |
+| `@simatic-ax/laxisctrl-std-v9`  | MC v9                  | Standard    | S7-1500  |
+
+How to choose:
+
+- **Motion Control version:** use the package matching the Motion Control version of your project.
+- **Technology (`laxisctrl-v<N>`):** for S7-1500T CPUs. Includes all synchronous motion functions.
+- **Standard (`laxisctrl-std-v<N>`):** for S7-1500 CPUs without "T". Functions that require a T-CPU (absolute and velocity gearing, gear out, camming, phasing, offset and synchronized motion simulation) are not available; commands for them report an error.
+
+The `apax.yml` of every published package is located in [packages](packages). The root `apax.yml` is the development configuration and matches `@simatic-ax/laxisctrl-v10`. The `packages` folder holds package manifests only; the source code is shared.
+
 ## Library functionality
 
-| Functions   | Description             |
-| ----------- | ----------------------- |
-| [AxisStatusWord](docs/blocks/LAxisCtrl_AxisStatusWord.md) | Function to retrieve the status words of an axis technology object as individual bits |
-| [AxisWarningWord](docs/blocks/LAxisCtrl_AxisWarningWord.md) | Function to retrieve the warning word of an axis technology object as individual bits |
-| [AxisErrorWord](docs/blocks/LAxisCtrl_AxisErrorWord.md) | Function to retrieve the error word of an axis technology object as individual bits |
+| Functions                                         | Description                                                                             |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| [AxisStatusWord](docs/blocks/AxisStatusWord.md)   | Function to retrieve the status words of an axis technology object as individual bits   |
+| [AxisWarningWord](docs/blocks/AxisWarningWord.md) | Function to retrieve the warning word of an axis technology object as individual bits   |
+| [AxisErrorWord](docs/blocks/AxisErrorWord.md)     | Function to retrieve the error word of an axis technology object as individual bits     |
 
-| Function Blocks | Description           |
-| --------------- | --------------------- |
-| [AxisControl](docs/blocks/LAxisCtrl_AxisControl.md) | Function block that executes various motion control tasks of an axis technology object |
+| Function Blocks                           | Description                                                                            |
+| ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| [AxisControl](docs/blocks/AxisControl.md) | Function block that executes various motion control tasks of an axis technology object |
 
 ## Examples
 
 ### Basic motion program
 
 <details>
-
 ```iec-st
 USING Simatic.Ax;
-USING Siemens.Simatic.MotionControl.Native;
+USING Siemens.S7.MotionControl;
 USING Simatic.Ax.LAxisCtrl;
 
 TYPE INTERNAL
-    BasicMotion_States : UINT(
+    BasicMotionStates : UINT(
         IDLE := UINT#0,
         POWER_ON := UINT#10,
         MOVE_REL := UINT#20,
@@ -94,7 +107,7 @@ FUNCTION_BLOCK BasicMotion
         _error : BOOL;
         _errorID : WORD;
         _checked : BOOL;
-        _state : BasicMotion_States;
+        _state : BasicMotionStates;
         _instLAxisCtrl : AxisControl;
     END_VAR
 
@@ -108,7 +121,7 @@ FUNCTION_BLOCK BasicMotion
         _instLAxisCtrl(enable := TRUE, axis := axis);
 
         _busy := TRUE;
-        _state := BasicMotion_States#POWER_ON;
+        _state := BasicMotionStates#POWER_ON;
 
     ELSIF NOT execute AND _executeOld AND NOT _busy THEN
         _done := FALSE;
@@ -118,7 +131,7 @@ FUNCTION_BLOCK BasicMotion
 
         _instLAxisCtrl(enable := FALSE, axis := axis);
 
-        _state := BasicMotion_States#IDLE;
+        _state := BasicMotionStates#IDLE;
     END_IF;
 
     _executeOld := execute;
@@ -129,19 +142,19 @@ FUNCTION_BLOCK BasicMotion
     END_IF;
 
     CASE _state OF
-        BasicMotion_States#IDLE:
+        BasicMotionStates#IDLE:
             ;
 
-        BasicMotion_States#POWER_ON:
+        BasicMotionStates#POWER_ON:
             IF _instLAxisCtrl.valid THEN
                 _instLAxisCtrl.enableAxis := TRUE;
 
                 IF _instLAxisCtrl.axisEnabled THEN
-                _state := BasicMotion_States#MOVE_REL;
+                _state := BasicMotionStates#MOVE_REL;
                 END_IF;
             END_IF;
 
-        BasicMotion_States#MOVE_REL:
+        BasicMotionStates#MOVE_REL:
             _instLAxisCtrl.config.posRelative.distance := 3600;
             _instLAxisCtrl.config.posRelative.velocity := 600;
             _instLAxisCtrl.posRelative := TRUE;
@@ -153,12 +166,12 @@ FUNCTION_BLOCK BasicMotion
             IF _instLAxisCtrl.commandDone AND _checked THEN
                 _checked := FALSE;
                 _instLAxisCtrl.posRelative := FALSE;
-                _state := BasicMotion_States#HOME;
+                _state := BasicMotionStates#HOME;
             END_IF;
 
-        BasicMotion_States#HOME:
+        BasicMotionStates#HOME:
             _instLAxisCtrl.config.homing.position := 0;
-            _instLAxisCtrl.config.homing.mode := HomingMode#ABS_ENC_ADJUST_ABS;
+            _instLAxisCtrl.config.homing.mode := HomingMode#ABSOLUTE_ENCODER_ADJUSTMENT_ABSOLUTE;
             _instLAxisCtrl.homing := TRUE;
 
             IF _instLAxisCtrl.homingCommandBusy AND _instLAxisCtrl.homingSelected AND NOT _checked THEN
@@ -168,13 +181,13 @@ FUNCTION_BLOCK BasicMotion
             IF _instLAxisCtrl.homingCommandDone AND _checked THEN
                 _checked := FALSE;
                 _instLAxisCtrl.homing := FALSE;
-                _state := BasicMotion_States#POWER_OFF;
+                _state := BasicMotionStates#POWER_OFF;
             END_IF;
 
-        BasicMotion_States#MOVE_ABS:
+        BasicMotionStates#MOVE_ABS:
             _instLAxisCtrl.config.posAbsolute.position := 1800;
             _instLAxisCtrl.config.posAbsolute.velocity := 600;
-            _instLAxisCtrl.config.posAbsolute.direction := PosAbsDirection#NEGATIVE;
+            _instLAxisCtrl.config.posAbsolute.direction := DirectionModulo#NEGATIVE;
             _instLAxisCtrl.posAbsolute := TRUE;
 
             IF _instLAxisCtrl.commandBusy AND _instLAxisCtrl.posAbsoluteSelected AND NOT _checked THEN
@@ -184,10 +197,10 @@ FUNCTION_BLOCK BasicMotion
             IF _instLAxisCtrl.commandDone AND _checked THEN
                 _checked := FALSE;
                 _instLAxisCtrl.posAbsolute := FALSE;
-                _state := BasicMotion_States#MOVE_VEL;
+                _state := BasicMotionStates#MOVE_VEL;
             END_IF;
 
-        BasicMotion_States#MOVE_VEL:
+        BasicMotionStates#MOVE_VEL:
             _instLAxisCtrl.config.moveVelocity.velocity := 123;
             _instLAxisCtrl.config.moveVelocity.velocityChangeOnTheFly := TRUE;
             _instLAxisCtrl.moveVelocity := TRUE;
@@ -205,10 +218,10 @@ FUNCTION_BLOCK BasicMotion
             IF _instLAxisCtrl.commandBusy AND _instLAxisCtrl.moveVelocitySelected AND _checked THEN
                 _checked := FALSE;
                 _instLAxisCtrl.moveVelocity := FALSE;
-                _state := BasicMotion_States#MOVE_HALT;
+                _state := BasicMotionStates#MOVE_HALT;
             END_IF;
 
-        BasicMotion_States#MOVE_HALT:
+        BasicMotionStates#MOVE_HALT:
             _instLAxisCtrl.stop := TRUE;
 
             IF _instLAxisCtrl.commandBusy AND _instLAxisCtrl.stopSelected AND NOT _checked THEN
@@ -218,10 +231,10 @@ FUNCTION_BLOCK BasicMotion
             IF _instLAxisCtrl.commandDone AND _checked THEN
                 _checked := FALSE;
                 _instLAxisCtrl.stop := FALSE;
-                _state := BasicMotion_States#POWER_OFF;
+                _state := BasicMotionStates#POWER_OFF;
             END_IF;
 
-        BasicMotion_States#POWER_OFF:
+        BasicMotionStates#POWER_OFF:
             _instLAxisCtrl.enableAxis := FALSE;
 
             IF NOT _instLAxisCtrl.axisEnabled THEN
@@ -255,7 +268,6 @@ FUNCTION_BLOCK BasicMotion
     errorId := _errorId;
 END_FUNCTION_BLOCK
 ```
-
 </details>
 
 ## Contribution
@@ -264,4 +276,4 @@ Thanks for your interest in contributing. Anybody is free to report bugs, unclea
 
 ## License and Legal information
 
-Please read the [Legal information](LICENSE.md)
+Please read the [Legal information](LICENSE)
